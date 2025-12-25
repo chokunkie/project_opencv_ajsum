@@ -323,6 +323,8 @@ namespace ConsoleApplication3 {
 	private: System::Windows::Forms::Button^ button8;
 	private: System::Windows::Forms::Button^ button10;
 	private: System::Windows::Forms::Panel^ panel3;
+	private: System::Windows::Forms::Label^ label6;
+
 
 
 
@@ -337,19 +339,20 @@ namespace ConsoleApplication3 {
 			   this->pictureBox1 = (gcnew System::Windows::Forms::PictureBox());
 			   this->processingWorker = (gcnew System::ComponentModel::BackgroundWorker());
 			   this->panel1 = (gcnew System::Windows::Forms::Panel());
-			   this->label1 = (gcnew System::Windows::Forms::Label());
-			   this->trackBar1 = (gcnew System::Windows::Forms::TrackBar());
-			   this->button4 = (gcnew System::Windows::Forms::Button());
-			   this->button5 = (gcnew System::Windows::Forms::Button());
-			   this->button3 = (gcnew System::Windows::Forms::Button());
 			   this->button6 = (gcnew System::Windows::Forms::Button());
+			   this->button3 = (gcnew System::Windows::Forms::Button());
+			   this->button5 = (gcnew System::Windows::Forms::Button());
+			   this->button4 = (gcnew System::Windows::Forms::Button());
+			   this->trackBar1 = (gcnew System::Windows::Forms::TrackBar());
+			   this->label1 = (gcnew System::Windows::Forms::Label());
 			   this->panel2 = (gcnew System::Windows::Forms::Panel());
+			   this->panel3 = (gcnew System::Windows::Forms::Panel());
+			   this->label4 = (gcnew System::Windows::Forms::Label());
+			   this->label2 = (gcnew System::Windows::Forms::Label());
 			   this->label3 = (gcnew System::Windows::Forms::Label());
 			   this->button8 = (gcnew System::Windows::Forms::Button());
 			   this->button10 = (gcnew System::Windows::Forms::Button());
-			   this->label2 = (gcnew System::Windows::Forms::Label());
-			   this->label4 = (gcnew System::Windows::Forms::Label());
-			   this->panel3 = (gcnew System::Windows::Forms::Panel());
+			   this->label6 = (gcnew System::Windows::Forms::Label());
 			   (cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->pictureBox1))->BeginInit();
 			   this->panel1->SuspendLayout();
 			   (cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->trackBar1))->BeginInit();
@@ -391,32 +394,25 @@ namespace ConsoleApplication3 {
 			   this->panel1->Size = System::Drawing::Size(851, 484);
 			   this->panel1->TabIndex = 4;
 			   // 
-			   // label1
+			   // button6
 			   // 
-			   this->label1->AutoSize = true;
-			   this->label1->BackColor = System::Drawing::Color::Yellow;
-			   this->label1->Location = System::Drawing::Point(46, 34);
-			   this->label1->Name = L"label1";
-			   this->label1->Size = System::Drawing::Size(52, 13);
-			   this->label1->TabIndex = 2;
-			   this->label1->Text = L"Camera 1";
+			   this->button6->BackColor = System::Drawing::Color::Yellow;
+			   this->button6->Location = System::Drawing::Point(13, 25);
+			   this->button6->Name = L"button6";
+			   this->button6->Size = System::Drawing::Size(27, 32);
+			   this->button6->TabIndex = 7;
+			   this->button6->Text = L"<";
+			   this->button6->UseVisualStyleBackColor = false;
 			   // 
-			   // trackBar1
+			   // button3
 			   // 
-			   this->trackBar1->Location = System::Drawing::Point(508, 20);
-			   this->trackBar1->Name = L"trackBar1";
-			   this->trackBar1->Size = System::Drawing::Size(217, 45);
-			   this->trackBar1->TabIndex = 3;
-			   // 
-			   // button4
-			   // 
-			   this->button4->Image = (cli::safe_cast<System::Drawing::Image^>(resources->GetObject(L"button4.Image")));
-			   this->button4->Location = System::Drawing::Point(470, 20);
-			   this->button4->Name = L"button4";
-			   this->button4->Size = System::Drawing::Size(32, 29);
-			   this->button4->TabIndex = 4;
-			   this->button4->UseVisualStyleBackColor = true;
-			   this->button4->Click += gcnew System::EventHandler(this, &UploadForm::button4_Click);
+			   this->button3->BackColor = System::Drawing::Color::Yellow;
+			   this->button3->Location = System::Drawing::Point(104, 24);
+			   this->button3->Name = L"button3";
+			   this->button3->Size = System::Drawing::Size(27, 32);
+			   this->button3->TabIndex = 6;
+			   this->button3->Text = L">";
+			   this->button3->UseVisualStyleBackColor = false;
 			   // 
 			   // button5
 			   // 
@@ -430,29 +426,37 @@ namespace ConsoleApplication3 {
 			   this->button5->Text = L"Offline";
 			   this->button5->UseVisualStyleBackColor = false;
 			   // 
-			   // button3
+			   // button4
 			   // 
-			   this->button3->BackColor = System::Drawing::Color::Yellow;
-			   this->button3->Location = System::Drawing::Point(104, 24);
-			   this->button3->Name = L"button3";
-			   this->button3->Size = System::Drawing::Size(27, 32);
-			   this->button3->TabIndex = 6;
-			   this->button3->Text = L">";
-			   this->button3->UseVisualStyleBackColor = false;
+			   this->button4->Image = (cli::safe_cast<System::Drawing::Image^>(resources->GetObject(L"button4.Image")));
+			   this->button4->Location = System::Drawing::Point(470, 20);
+			   this->button4->Name = L"button4";
+			   this->button4->Size = System::Drawing::Size(32, 29);
+			   this->button4->TabIndex = 4;
+			   this->button4->UseVisualStyleBackColor = true;
+			   this->button4->Click += gcnew System::EventHandler(this, &UploadForm::button4_Click);
 			   // 
-			   // button6
+			   // trackBar1
 			   // 
-			   this->button6->BackColor = System::Drawing::Color::Yellow;
-			   this->button6->Location = System::Drawing::Point(13, 25);
-			   this->button6->Name = L"button6";
-			   this->button6->Size = System::Drawing::Size(27, 32);
-			   this->button6->TabIndex = 7;
-			   this->button6->Text = L"<";
-			   this->button6->UseVisualStyleBackColor = false;
+			   this->trackBar1->Location = System::Drawing::Point(508, 20);
+			   this->trackBar1->Name = L"trackBar1";
+			   this->trackBar1->Size = System::Drawing::Size(217, 45);
+			   this->trackBar1->TabIndex = 3;
+			   // 
+			   // label1
+			   // 
+			   this->label1->AutoSize = true;
+			   this->label1->BackColor = System::Drawing::Color::Yellow;
+			   this->label1->Location = System::Drawing::Point(46, 34);
+			   this->label1->Name = L"label1";
+			   this->label1->Size = System::Drawing::Size(52, 13);
+			   this->label1->TabIndex = 2;
+			   this->label1->Text = L"Camera 1";
 			   // 
 			   // panel2
 			   // 
 			   this->panel2->BackColor = System::Drawing::Color::LightSteelBlue;
+			   this->panel2->Controls->Add(this->label6);
 			   this->panel2->Controls->Add(this->panel3);
 			   this->panel2->Controls->Add(this->label4);
 			   this->panel2->Controls->Add(this->label2);
@@ -464,6 +468,34 @@ namespace ConsoleApplication3 {
 			   this->panel2->Size = System::Drawing::Size(541, 484);
 			   this->panel2->TabIndex = 5;
 			   this->panel2->Paint += gcnew System::Windows::Forms::PaintEventHandler(this, &UploadForm::panel2_Paint);
+			   // 
+			   // panel3
+			   // 
+			   this->panel3->BackColor = System::Drawing::Color::LemonChiffon;
+			   this->panel3->Location = System::Drawing::Point(116, 198);
+			   this->panel3->Name = L"panel3";
+			   this->panel3->Size = System::Drawing::Size(329, 38);
+			   this->panel3->TabIndex = 5;
+			   // 
+			   // label4
+			   // 
+			   this->label4->AutoSize = true;
+			   this->label4->BackColor = System::Drawing::Color::OrangeRed;
+			   this->label4->Location = System::Drawing::Point(399, 142);
+			   this->label4->Name = L"label4";
+			   this->label4->Size = System::Drawing::Size(47, 13);
+			   this->label4->TabIndex = 4;
+			   this->label4->Text = L"Violation";
+			   // 
+			   // label2
+			   // 
+			   this->label2->AutoSize = true;
+			   this->label2->BackColor = System::Drawing::Color::Yellow;
+			   this->label2->Location = System::Drawing::Point(244, 142);
+			   this->label2->Name = L"label2";
+			   this->label2->Size = System::Drawing::Size(40, 13);
+			   this->label2->TabIndex = 3;
+			   this->label2->Text = L"Normal";
 			   // 
 			   // label3
 			   // 
@@ -499,33 +531,19 @@ namespace ConsoleApplication3 {
 			   this->button10->Text = L"Upload Video";
 			   this->button10->UseVisualStyleBackColor = false;
 			   // 
-			   // label2
+			   // label6
 			   // 
-			   this->label2->AutoSize = true;
-			   this->label2->BackColor = System::Drawing::Color::Yellow;
-			   this->label2->Location = System::Drawing::Point(244, 142);
-			   this->label2->Name = L"label2";
-			   this->label2->Size = System::Drawing::Size(40, 13);
-			   this->label2->TabIndex = 3;
-			   this->label2->Text = L"Normal";
-			   // 
-			   // label4
-			   // 
-			   this->label4->AutoSize = true;
-			   this->label4->BackColor = System::Drawing::Color::OrangeRed;
-			   this->label4->Location = System::Drawing::Point(399, 142);
-			   this->label4->Name = L"label4";
-			   this->label4->Size = System::Drawing::Size(47, 13);
-			   this->label4->TabIndex = 4;
-			   this->label4->Text = L"Violation";
-			   // 
-			   // panel3
-			   // 
-			   this->panel3->BackColor = System::Drawing::Color::LemonChiffon;
-			   this->panel3->Location = System::Drawing::Point(116, 198);
-			   this->panel3->Name = L"panel3";
-			   this->panel3->Size = System::Drawing::Size(329, 38);
-			   this->panel3->TabIndex = 5;
+			   this->label6->Anchor = System::Windows::Forms::AnchorStyles::Top;
+			   this->label6->AutoSize = true;
+			   this->label6->Font = (gcnew System::Drawing::Font(L"Segoe UI", 16.75F, System::Drawing::FontStyle::Bold, System::Drawing::GraphicsUnit::Point,
+				   static_cast<System::Byte>(0)));
+			   this->label6->ForeColor = System::Drawing::Color::Black;
+			   this->label6->Location = System::Drawing::Point(211, 42);
+			   this->label6->Margin = System::Windows::Forms::Padding(100, 0, 3, 0);
+			   this->label6->Name = L"label6";
+			   this->label6->Size = System::Drawing::Size(163, 31);
+			   this->label6->TabIndex = 7;
+			   this->label6->Text = L"logs 25/12/67";
 			   // 
 			   // UploadForm
 			   // 

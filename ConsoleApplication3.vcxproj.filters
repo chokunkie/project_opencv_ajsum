@@ -38,6 +38,9 @@
     <ClInclude Include="popup1.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="offline1.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AssemblyInfo.cpp">
@@ -53,6 +56,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="popup1.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="offline1.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

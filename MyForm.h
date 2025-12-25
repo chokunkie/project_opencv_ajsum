@@ -314,6 +314,7 @@ namespace ConsoleApplication3 {
 			this->splitContainer1->ResumeLayout(false);
 			(cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->pictureBox1))->EndInit();
 			this->ResumeLayout(false);
+
 		}
 #pragma endregion
 

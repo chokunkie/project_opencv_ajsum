@@ -17,12 +17,17 @@ struct TrackedObject {
     cv::Point2f velocity;
     cv::Rect predictedBbox;
     
+    // [NEW] ?????????????????????????????
+    int framesStill;         // ??????????????????????
+    cv::Point lastCenter;    // ???????????????????????
+    
     TrackedObject() : id(-1), framesLost(0), isActive(true), confidence(0.0f), classId(-1), 
-                      velocity(0, 0), predictedBbox() {}
+                      velocity(0, 0), predictedBbox(), framesStill(0), lastCenter(0, 0) {}
     
     TrackedObject(int _id, cv::Rect _bbox, int _classId, float _conf) 
         : id(_id), bbox(_bbox), classId(_classId), confidence(_conf), framesLost(0), isActive(true),
-          velocity(0, 0), predictedBbox(_bbox) {}
+          velocity(0, 0), predictedBbox(_bbox), framesStill(0), 
+          lastCenter(_bbox.x + _bbox.width/2, _bbox.y + _bbox.height/2) {}
     
     // Predict next position based on velocity
     void predict() {
@@ -41,6 +46,19 @@ struct TrackedObject {
         );
         velocity.x = alpha * velocity.x + (1 - alpha) * newVelocity.x;
         velocity.y = alpha * velocity.y + (1 - alpha) * newVelocity.y;
+        
+        // [NEW] ?????? framesStill
+        cv::Point currentCenter(newBbox.x + newBbox.width/2, newBbox.y + newBbox.height/2);
+        float distance = cv::norm(currentCenter - lastCenter);
+        
+        // ????????????????????? 5 pixels = ??????????
+        if (distance < 5.0f) {
+            framesStill++;
+        } else {
+            framesStill = 0;
+        }
+        
+        lastCenter = currentCenter;
     }
 };
 

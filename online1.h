@@ -2,7 +2,9 @@
 #include <msclr/marshal_cppstd.h>
 #include <string>
 #include <vector>
+#include <map>
 #include "BYTETracker.h"
+#include "ParkingSlot.h" // เพิ่มไฟล์ Parking Slot
 
 #pragma managed(push, off)
 #define NOMINMAX
@@ -13,12 +15,32 @@
 #include <cmath>
 #include <mutex>
 
+// ==========================================
+//  LAYER 1: SHARED DATA (ข้อมูลกลาง)
+// ==========================================
+struct OnlineAppState {
+	std::vector<TrackedObject> cars;
+	std::map<int, SlotStatus> slotStatuses;
+	std::map<int, float> slotOccupancy;
+	long long frameSequence = -1;
+};
+
+static OnlineAppState g_onlineState;
+static std::mutex g_onlineStateMutex;
+
+// ==========================================
+//  LAYER 2: BACKEND LOGIC
+// ==========================================*/
+
 // --- Global Variables ---
 static cv::dnn::Net* g_net = nullptr;
 static std::vector<std::string> g_classes;
 static std::vector<cv::Scalar> g_colors;
 static cv::VideoCapture* g_cap = nullptr;
 static BYTETracker* g_tracker = nullptr;
+
+// Parking Manager (Logic)
+static ParkingManager* g_pm_logic_online = nullptr;
 
 // --- Frame Sync Management (ส่วนที่เพิ่มใหม่) ---
 static cv::Mat g_latestRawFrame;
@@ -28,6 +50,7 @@ static std::mutex g_frameMutex;
 // --- AI Status ---
 static std::mutex g_processMutex;
 static bool g_modelReady = false;
+static bool g_parkingEnabled_online = false;
 
 // --- Detection Results (with Tracking) ---
 static std::vector<TrackedObject> g_trackedObjects;
@@ -39,7 +62,27 @@ static const int YOLO_INPUT_SIZE = 640;
 static const float CONF_THRESHOLD = 0.25f;
 static const float NMS_THRESHOLD = 0.45f;
 
+// ==========================================
+//  LAYER 3: PRESENTATION (Frontend)
+// ==========================================
+static ParkingManager* g_pm_display_online = nullptr;
+
+// [SMART CACHE] ระบบจำภาพ
+static cv::Mat g_cachedParkingOverlay_online;
+static std::map<int, SlotStatus> g_lastDrawnStatus_online;
+
+// [NEW] Violation Cache - ระบบจำรถที่จอดผิด (Online)
+static cv::Mat g_cachedViolationOverlay_online;
+static std::set<int> g_lastViolatingCarIds_online;
+
 // --- Helper Functions ---
+
+static void ResetParkingCache_Online() {
+	g_cachedParkingOverlay_online = cv::Mat();
+	g_lastDrawnStatus_online.clear();
+	g_cachedViolationOverlay_online = cv::Mat();
+	g_lastViolatingCarIds_online.clear();
+}
 
 static cv::Mat FormatToLetterbox(const cv::Mat& source, int width, int height, float& ratio, int& dw, int& dh) {
 	if (source.empty()) return cv::Mat();
@@ -71,6 +114,7 @@ static void OpenGlobalCamera(int cameraIndex = 0) {
 	g_cap = new cv::VideoCapture(cameraIndex);
 	g_currentFrameSeq = 0;
 	g_detectionSourceSeq = -1;
+	ResetParkingCache_Online();
 }
 
 static void OpenGlobalCameraFromIP(const std::string& rtspUrl) {
@@ -79,6 +123,7 @@ static void OpenGlobalCameraFromIP(const std::string& rtspUrl) {
 	g_cap = new cv::VideoCapture(rtspUrl);
 	g_currentFrameSeq = 0;
 	g_detectionSourceSeq = -1;
+	ResetParkingCache_Online();
 }
 
 static void InitGlobalModel(const std::string& modelPath) {
@@ -122,7 +167,7 @@ static void InitGlobalModel(const std::string& modelPath) {
 	}
 }
 
-// [FIX] เพิ่ม Parameter frameSeq เพื่อระบุตัวตนของเฟรม
+// [FIX] เพิ่ม Parameter frameSeq เพื่อระบุตัวตนของเฟรม + Parking Logic
 static void DetectObjectsOnFrame(const cv::Mat& inputFrame, long long frameSeq) {
 	{
 		std::lock_guard<std::mutex> lock(g_processMutex);
@@ -213,7 +258,38 @@ static void DetectObjectsOnFrame(const cv::Mat& inputFrame, long long frameSeq) 
 			trackedObjs = g_tracker->update(nms_boxes, nms_class_ids, nms_confs);
 		}
 
-		// Update global tracked objects
+		// Parking Logic (คำนวณสถานะที่จอดรถ)
+		std::map<int, SlotStatus> calculatedStatuses;
+		std::map<int, float> calculatedOccupancy;
+
+		if (g_parkingEnabled_online && g_pm_logic_online) {
+			// Set Template Frame
+			static bool templateSet_online = false;
+			if (!templateSet_online) {
+				g_pm_logic_online->setTemplateFrame(inputFrame);
+				templateSet_online = true;
+			}
+
+			// คำนวณหนักๆ ที่นี่
+			g_pm_logic_online->updateSlotStatus(trackedObjs);
+
+			// ดึงผลลัพธ์
+			for (const auto& slot : g_pm_logic_online->getSlots()) {
+				calculatedStatuses[slot.id] = slot.status;
+				calculatedOccupancy[slot.id] = slot.occupancyPercent;
+			}
+		}
+
+		// Update shared state (Layer 1)
+		{
+			std::lock_guard<std::mutex> stateLock(g_onlineStateMutex);
+			g_onlineState.cars = trackedObjs;
+			g_onlineState.slotStatuses = calculatedStatuses;
+			g_onlineState.slotOccupancy = calculatedOccupancy;
+			g_onlineState.frameSequence = frameSeq;
+		}
+
+		// Update global tracked objects (backward compatibility)
 		{
 			std::lock_guard<std::mutex> detLock(g_detectionMutex);
 			g_trackedObjects = trackedObjs;
@@ -223,67 +299,177 @@ static void DetectObjectsOnFrame(const cv::Mat& inputFrame, long long frameSeq) 
 	catch (...) {}
 }
 
-// [FIX] รับ displaySeq มาเช็ค
+// [NEW] ฟังก์ชันเช็ครถที่จอดนอกพื้นที่
+// คืนค่า true ถ้ารถหยุดนิ่งแต่ไม่ได้อยู่ในพื้นที่จอดรถใดๆ
+static bool IsViolatingParking(const TrackedObject& car) {
+	if (!g_pm_logic_online) return false;
+	
+	for (const auto& slot : g_pm_logic_online->getSlots()) {
+		if (g_pm_logic_online->isCarInSlot(car.bbox, slot)) {
+			return false;
+		}
+	}
+	
+	return (car.framesStill > 30);
+}
+
+// [OPTIMIZED] รับ displaySeq มาเช็ค + วาด Parking Slots + เช็ครถที่จอดผิด
 static cv::Mat DrawPersistentDetections(const cv::Mat& frame, long long displaySeq) {
 	if (frame.empty()) return cv::Mat();
 	cv::Mat result = frame.clone();
 
-	std::lock_guard<std::mutex> lock(g_detectionMutex);
-
-	if (g_detectionSourceSeq > displaySeq) {
-		return result;
+	OnlineAppState state;
+	{
+		std::lock_guard<std::mutex> lock(g_onlineStateMutex);
+		state = g_onlineState;
 	}
 
-	// Draw tracked objects with ID
-	for (const auto& obj : g_trackedObjects) {
-		if (obj.classId >= 0 && obj.classId < g_classes.size()) {
+	bool isFuture = (state.frameSequence > displaySeq);
+
+	// --- PARKING LAYER (Smart Cache) ---
+	if (g_parkingEnabled_online && g_pm_display_online) {
+		bool statusChanged = (state.slotStatuses != g_lastDrawnStatus_online);
+		bool invalidCache = g_cachedParkingOverlay_online.empty() || 
+		                    g_cachedParkingOverlay_online.size() != result.size();
+
+		if (statusChanged || invalidCache) {
+			cv::Mat blank = cv::Mat::zeros(result.size(), result.type());
+
+			if (!state.slotStatuses.empty()) {
+				auto& displaySlots = g_pm_display_online->getSlots();
+				for (auto& slot : displaySlots) {
+					if (state.slotStatuses.count(slot.id)) {
+						slot.status = state.slotStatuses[slot.id];
+						slot.occupancyPercent = state.slotOccupancy[slot.id];
+					}
+				}
+			}
+
+			g_cachedParkingOverlay_online = g_pm_display_online->drawSlots(blank);
+			g_lastDrawnStatus_online = state.slotStatuses;
+		}
+
+		if (!g_cachedParkingOverlay_online.empty()) {
+			cv::add(result, g_cachedParkingOverlay_online, result);
+		}
+	}
+
+	// --- CAR LAYER with OPTIMIZED Violation Cache ---
+	if (!isFuture) {
+		// [OPTIMIZED] เช็ครถที่จอดผิดเฉพาะเมื่อจำเป็น
+		std::set<int> currentViolatingCarIds;
+		bool needsViolationCheck = g_parkingEnabled_online;
+		
+		if (needsViolationCheck) {
+			for (const auto& obj : state.cars) {
+				if (obj.framesStill > 30) {
+					bool inSlot = false;
+					for (const auto& slot : g_pm_logic_online->getSlots()) {
+						if (g_pm_logic_online->isCarInSlot(obj.bbox, slot)) {
+							inSlot = true;
+							break;
+						}
+					}
+					if (!inSlot) {
+						currentViolatingCarIds.insert(obj.id);
+					}
+				}
+			}
+		}
+		
+		bool violationChanged = (currentViolatingCarIds != g_lastViolatingCarIds_online);
+		bool violationCacheInvalid = g_cachedViolationOverlay_online.empty() || 
+		                              g_cachedViolationOverlay_online.size() != result.size();
+		
+		if (needsViolationCheck && (violationChanged || violationCacheInvalid)) {
+			g_cachedViolationOverlay_online = cv::Mat::zeros(result.size(), result.type());
+			
+			for (const auto& obj : state.cars) {
+				if (currentViolatingCarIds.count(obj.id) > 0) {
+					cv::rectangle(g_cachedViolationOverlay_online, obj.bbox, cv::Scalar(0, 0, 128), -1);
+				}
+			}
+			
+			g_lastViolatingCarIds_online = currentViolatingCarIds;
+		}
+		
+		if (!g_cachedViolationOverlay_online.empty() && needsViolationCheck) {
+			cv::addWeighted(result, 1.0, g_cachedViolationOverlay_online, 0.5, 0, result);
+		}
+		
+		// [OPTIMIZED] วาดกรอบและ Label
+		for (const auto& obj : state.cars) {
+			if (obj.classId < 0 || obj.classId >= g_classes.size()) continue;
+			
 			cv::Rect box = obj.bbox;
+			bool isViolating = (currentViolatingCarIds.count(obj.id) > 0);
 			
-			// Draw bounding box
-			cv::rectangle(result, box, g_colors[obj.classId], 2);
+			// วาดกรอบ
+			cv::Scalar boxColor = isViolating ? cv::Scalar(0, 0, 255) : g_colors[obj.classId];
+			int thickness = isViolating ? 3 : 2;
+			cv::rectangle(result, box, boxColor, thickness);
 			
-			// Create compact label with ID and class name
-			std::string label = "ID:" + std::to_string(obj.id) + " " + g_classes[obj.classId];
+			// สร้าง Label
+			std::string label = "ID:" + std::to_string(obj.id);
+			if (!g_parkingEnabled_online) {
+				label += " " + g_classes[obj.classId];
+			}
+			if (isViolating) {
+				label += " [VIOLATION]";
+			}
 			
+			// วาด Label
 			int baseline;
-			// Reduced font size from 0.6 to 0.4 and thickness from 2 to 1
 			cv::Size textSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.4, 1, &baseline);
 			int y_label = (std::max)(0, box.y - textSize.height - 4);
 			
-			// Draw smaller label background
 			cv::rectangle(result, 
 				cv::Point(box.x, y_label), 
 				cv::Point(box.x + textSize.width, y_label + textSize.height + 4), 
-				g_colors[obj.classId], -1);
+				boxColor, -1);
 			
-			// Draw label text with smaller font
 			cv::putText(result, label, 
 				cv::Point(box.x, y_label + textSize.height + 1), 
 				cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);
 			
-			// Draw smaller tracking ID badge at bottom-right of box
+			// Draw tracking ID badge (เล็กลง)
 			std::string idBadge = "#" + std::to_string(obj.id);
-			cv::Size badgeSize = cv::getTextSize(idBadge, cv::FONT_HERSHEY_SIMPLEX, 0.35, 1, &baseline);
+			cv::Size badgeSize = cv::getTextSize(idBadge, cv::FONT_HERSHEY_SIMPLEX, 0.3, 1, &baseline);
 			cv::Point badgePos(box.x + box.width - badgeSize.width - 3, box.y + box.height - 3);
 			
-			// Draw smaller badge background
 			cv::rectangle(result,
 				cv::Point(badgePos.x - 2, badgePos.y - badgeSize.height - 2),
 				cv::Point(badgePos.x + badgeSize.width + 2, badgePos.y + 2),
 				cv::Scalar(0, 0, 0), -1);
 			
-			// Draw badge text with smaller font
 			cv::putText(result, idBadge, badgePos,
-				cv::FONT_HERSHEY_SIMPLEX, 0.35, cv::Scalar(255, 255, 0), 1);
+				cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(255, 255, 0), 1);
 		}
 	}
 	
-	// Draw tracking statistics with smaller font
-	std::string stats = "Tracks: " + std::to_string(g_trackedObjects.size());
+	// Stats
+	std::string stats = "Tracks: " + std::to_string(state.cars.size());
 	cv::putText(result, stats, cv::Point(10, 25),
 		cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 1);
 	
 	return result;
+}
+
+// [NEW] โหลด Parking Template
+static bool LoadParkingTemplate_Online(const std::string& filename) {
+	ResetParkingCache_Online();
+
+	if (!g_pm_logic_online) g_pm_logic_online = new ParkingManager();
+	if (!g_pm_display_online) g_pm_display_online = new ParkingManager();
+
+	bool s1 = g_pm_logic_online->loadTemplate(filename);
+	bool s2 = g_pm_display_online->loadTemplate(filename);
+
+	if (s1 && s2) {
+		g_parkingEnabled_online = true;
+		return true;
+	}
+	return false;
 }
 
 static void OpenGlobalVideo(const std::string& filename) {
@@ -292,6 +478,7 @@ static void OpenGlobalVideo(const std::string& filename) {
 	g_cap = new cv::VideoCapture(filename);
 	g_currentFrameSeq = 0; // Reset ตัวนับ
 	g_detectionSourceSeq = -1;
+	ResetParkingCache_Online();
 }
 
 static bool ReadNextVideoFrame() {
@@ -346,6 +533,8 @@ namespace ConsoleApplication3 {
 		{
 			StopProcessing();
 			if (components) delete components;
+			if (g_pm_logic_online) { delete g_pm_logic_online; g_pm_logic_online = nullptr; }
+			if (g_pm_display_online) { delete g_pm_display_online; g_pm_display_online = nullptr; }
 		}
 
 	private: System::Windows::Forms::Button^ button1;
@@ -369,6 +558,8 @@ namespace ConsoleApplication3 {
 	private: System::Windows::Forms::Label^ lblNormal;
 	private: System::Windows::Forms::Label^ lblEmpty;
 	private: System::Windows::Forms::Button^ btnLiveCamera;
+	private: System::Windows::Forms::Button^ btnLoadParkingTemplate;
+	private: System::Windows::Forms::CheckBox^ chkParkingMode;
 	private: System::Windows::Forms::Panel^ panel3;
 	private: System::Windows::Forms::Label^ lblLogs;
 	private: bool shouldStop;
@@ -388,6 +579,8 @@ namespace ConsoleApplication3 {
 			   this->trackBar1 = (gcnew System::Windows::Forms::TrackBar());
 			   this->lblCameraName = (gcnew System::Windows::Forms::Label());
 			   this->panel2 = (gcnew System::Windows::Forms::Panel());
+			   this->chkParkingMode = (gcnew System::Windows::Forms::CheckBox());
+			   this->btnLoadParkingTemplate = (gcnew System::Windows::Forms::Button());
 			   this->lblLogs = (gcnew System::Windows::Forms::Label());
 			   this->panel3 = (gcnew System::Windows::Forms::Panel());
 			   this->lblViolation = (gcnew System::Windows::Forms::Label());
@@ -496,6 +689,8 @@ namespace ConsoleApplication3 {
 	// panel2
 	// 
 	this->panel2->BackColor = System::Drawing::Color::LightSteelBlue;
+	this->panel2->Controls->Add(this->chkParkingMode);
+	this->panel2->Controls->Add(this->btnLoadParkingTemplate);
 	this->panel2->Controls->Add(this->lblLogs);
 	this->panel2->Controls->Add(this->panel3);
 	this->panel2->Controls->Add(this->lblViolation);
@@ -506,6 +701,28 @@ namespace ConsoleApplication3 {
 	this->panel2->Name = L"panel2";
 	this->panel2->Size = System::Drawing::Size(541, 484);
 	this->panel2->TabIndex = 5;
+	// 
+	// chkParkingMode
+	// 
+	this->chkParkingMode->AutoSize = true;
+	this->chkParkingMode->Location = System::Drawing::Point(438, 111);
+	this->chkParkingMode->Name = L"chkParkingMode";
+	this->chkParkingMode->Size = System::Drawing::Size(98, 17);
+	this->chkParkingMode->TabIndex = 9;
+	this->chkParkingMode->Text = L"Enable Parking";
+	this->chkParkingMode->UseVisualStyleBackColor = true;
+	this->chkParkingMode->CheckedChanged += gcnew System::EventHandler(this, &UploadForm::chkParkingMode_CheckedChanged);
+	// 
+	// btnLoadParkingTemplate
+	// 
+	this->btnLoadParkingTemplate->BackColor = System::Drawing::Color::LightGreen;
+	this->btnLoadParkingTemplate->Location = System::Drawing::Point(438, 73);
+	this->btnLoadParkingTemplate->Name = L"btnLoadParkingTemplate";
+	this->btnLoadParkingTemplate->Size = System::Drawing::Size(100, 25);
+	this->btnLoadParkingTemplate->TabIndex = 8;
+	this->btnLoadParkingTemplate->Text = L"Load Template";
+	this->btnLoadParkingTemplate->UseVisualStyleBackColor = false;
+	this->btnLoadParkingTemplate->Click += gcnew System::EventHandler(this, &UploadForm::btnLoadParkingTemplate_Click);
 	// 
 	// panel3
 	// 
@@ -609,17 +826,16 @@ namespace ConsoleApplication3 {
 		catch (...) { return nullptr; }
 	}
 
-		   // [FIX] Worker Loop: ส่ง Frame Sequence ไปด้วย
 	private: System::Void processingWorker_DoWork(System::Object^ sender, DoWorkEventArgs^ e) {
 		BackgroundWorker^ worker = safe_cast<BackgroundWorker^>(sender);
 		while (!shouldStop && !worker->CancellationPending) {
 			try {
 				cv::Mat frameToProcess;
 				long long seq = 0;
-				GetLatestRawFrameCopy(frameToProcess, seq); // เอาเลข Seq มา
+				GetLatestRawFrameCopy(frameToProcess, seq);
 
 				if (!frameToProcess.empty()) {
-					DetectObjectsOnFrame(frameToProcess, seq); // ส่งเลข Seq ไป
+					DetectObjectsOnFrame(frameToProcess, seq);
 				}
 				else {
 					Threading::Thread::Sleep(10);
@@ -629,18 +845,42 @@ namespace ConsoleApplication3 {
 		}
 	}
 
-		   // [FIX] Timer Loop: เช็ค Frame Sequence ก่อนวาด
+	// [OPTIMIZED] Timer Loop: วิดีโอไม่รอ AI (Non-Blocking)
 	private: System::Void timer1_Tick(System::Object^ sender, System::EventArgs^ e) {
 		try {
-			if (!ReadNextVideoFrame()) { StopProcessing(); return; }
+			// [OPTIMIZED] อ่านเฟรมใหม่เสมอ (ไม่รอการวาด)
+			if (!ReadNextVideoFrame()) { 
+				StopProcessing(); 
+				return; 
+			}
 
 			cv::Mat displayFrame;
 			long long displaySeq = 0;
-			GetLatestRawFrameCopy(displayFrame, displaySeq); // เอาเลข Seq ของภาพที่จะฉายมา
+			GetLatestRawFrameCopy(displayFrame, displaySeq);
 
 			if (!displayFrame.empty()) {
-				// ส่ง displaySeq เข้าไปเช็ค ถ้ากล่องเป็นอนาคต (seq มากกว่า) มันจะไม่วาด
-				cv::Mat result = DrawPersistentDetections(displayFrame, displaySeq);
+				// [NEW] วาดแบบ Non-Blocking (ไม่รอ AI)
+				cv::Mat result;
+				
+				{
+					// Lock สั้นๆ แค่คัดลอก state
+					std::lock_guard<std::mutex> lock(g_onlineStateMutex);
+					
+					// ถ้า AI ยังไม่เสร็จ (frameSequence < displaySeq) 
+					// ให้แสดงเฟรมเปล่า + ที่จอดรถอย่างเดียว
+					if (g_onlineState.frameSequence < displaySeq) {
+						// แสดงเฟรมเปล่า (ไม่มีกรอบรถ)
+						result = displayFrame.clone();
+						
+						// แต่ยังแสดงที่จอดรถได้ (จาก Cache)
+						if (g_parkingEnabled_online && !g_cachedParkingOverlay_online.empty()) {
+							cv::add(result, g_cachedParkingOverlay_online, result);
+						}
+					} else {
+						// AI เสร็จแล้ว วาดปกติ
+						result = DrawPersistentDetections(displayFrame, displaySeq);
+					}
+				}
 
 				if (!result.empty()) {
 					Bitmap^ newFrame = MatToBitmap(result);
@@ -664,10 +904,15 @@ namespace ConsoleApplication3 {
 		shouldStop = false;
 		isProcessing = true;
 		{
+			std::lock_guard<std::mutex> lock(g_onlineStateMutex);
+			g_onlineState = OnlineAppState();
+		}
+		{
 			std::lock_guard<std::mutex> lock(g_detectionMutex);
 			g_trackedObjects.clear();
 			g_detectionSourceSeq = -1;
 		}
+		ResetParkingCache_Online();
 		if (!processingWorker->IsBusy) processingWorker->RunWorkerAsync();
 		timer1->Start();
 	}
@@ -692,6 +937,7 @@ namespace ConsoleApplication3 {
 		if (e->Result != nullptr && e->Result->GetType() == bool::typeid && safe_cast<bool>(e->Result)) {
 			this->Text = L"Online Mode - YOLO Detection (Ready)";
 			btnLiveCamera->Enabled = true;
+			btnLoadParkingTemplate->Enabled = true;
 			MessageBox::Show("Model loaded!", "Success", MessageBoxButtons::OK, MessageBoxIcon::Information);
 		}
 		else {
@@ -904,6 +1150,34 @@ namespace ConsoleApplication3 {
 					MessageBoxIcon::Error
 				);
 			}
+		}
+	}
+
+	private: System::Void btnLoadParkingTemplate_Click(System::Object^ sender, System::EventArgs^ e) {
+		OpenFileDialog^ ofd = gcnew OpenFileDialog();
+		ofd->Filter = "Parking Template|*.xml";
+		if (ofd->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
+			std::string fileName = msclr::interop::marshal_as<std::string>(ofd->FileName);
+			if (LoadParkingTemplate_Online(fileName)) {
+				chkParkingMode->Checked = true;
+				MessageBox::Show("Template loaded!\n\nParking slot detection is now active.\nViolations (cars parked outside slots) will be marked in RED.", 
+					"Success", MessageBoxButtons::OK, MessageBoxIcon::Information);
+			}
+			else {
+				MessageBox::Show("Failed to load template!", "Error", MessageBoxButtons::OK, MessageBoxIcon::Error);
+			}
+		}
+	}
+
+	private: System::Void chkParkingMode_CheckedChanged(System::Object^ sender, System::EventArgs^ e) {
+		g_parkingEnabled_online = chkParkingMode->Checked;
+		if (chkParkingMode->Checked) {
+			lblCameraName->Text = "Parking Mode ON";
+			lblCameraName->BackColor = System::Drawing::Color::LightGreen;
+		}
+		else {
+			lblCameraName->Text = "Camera 1";
+			lblCameraName->BackColor = System::Drawing::Color::Yellow;
 		}
 	}
 

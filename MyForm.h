@@ -151,7 +151,7 @@ namespace ConsoleApplication3 {
 			this->label2->Name = L"label2";
 			this->label2->Size = System::Drawing::Size(245, 23);
 			this->label2->TabIndex = 1;
-			this->label2->Text = L"??????????????????????????????";
+			this->label2->Text = L"ลากเมาส์บนภาพเพื่อกำหนดช่องจอด";
 			// 
 			// label1
 			// 
@@ -181,8 +181,8 @@ namespace ConsoleApplication3 {
 			// 
 			// btnParkingSetup
 			// 
-			this->btnParkingSetup->BackColor = System::Drawing::Color::FromArgb(static_cast<System::Int32>(static_cast<System::Byte>(138)), 
-				static_cast<System::Int32>(static_cast<System::Byte>(43)), static_cast<System::Int32>(static_cast<System::Byte>(226)));
+			this->btnParkingSetup->BackColor = System::Drawing::Color::FromArgb(static_cast<System::Int32>(static_cast<System::Byte>(138)), static_cast<System::Int32>(static_cast<System::Byte>(43)),
+				static_cast<System::Int32>(static_cast<System::Byte>(226)));
 			this->btnParkingSetup->FlatAppearance->BorderSize = 0;
 			this->btnParkingSetup->FlatAppearance->MouseOverBackColor = System::Drawing::Color::FromArgb(static_cast<System::Int32>(static_cast<System::Byte>(120)),
 				static_cast<System::Int32>(static_cast<System::Byte>(30)), static_cast<System::Int32>(static_cast<System::Byte>(200)));
@@ -301,7 +301,7 @@ namespace ConsoleApplication3 {
 			this->label4->Name = L"label4";
 			this->label4->Size = System::Drawing::Size(257, 30);
 			this->label4->TabIndex = 3;
-			this->label4->Text = L"????????????? (ROI List)";
+			this->label4->Text = L"รายการช่องจอด (ROI List)";
 			// 
 			// label3
 			// 
@@ -315,7 +315,7 @@ namespace ConsoleApplication3 {
 			this->label3->Name = L"label3";
 			this->label3->Size = System::Drawing::Size(215, 31);
 			this->label3->TabIndex = 2;
-			this->label3->Text = L"????????? & ??????????";
+			this->label3->Text = L"เลือกเฟรม & เครื่องมือ";
 			// 
 			// MyForm
 			// 
